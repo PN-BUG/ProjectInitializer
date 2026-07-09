@@ -1,0 +1,13 @@
+{
+  "name": "com.projectinitializer.core",
+  "displayName": "Project Initializer",
+  "version": "1.0.0",
+  "unity": "2022.3",
+  "author": {
+    "name": "zko",
+    "email": "320653195@qq.com"
+  },
+  "description": "通用项目初始化工具\n包含:\n预设系统（可创建/编辑/导入）\n目录模板创建\n依赖包安装\n项目设置应用",
+  "keywords": ["Project", "Initializer", "Setup", "Preset"],
+  "samples": []
+}
