@@ -51,13 +51,19 @@ ProjectInitializer/
 
 ## 使用方式
 
-### 1. 作为子模块引入
+### 1. 作为本地包引入（推荐）
+
+将仓库克隆或作为子模块放在 `Packages/` 目录下：
 
 ```bash
-git submodule add https://github.com/PN-BUG/ProjectInitializer.git Assets/ProjectInitializer
+git submodule add https://github.com/PN-BUG/ProjectInitializer.git Packages/ProjectInitializer
 ```
 
-### 2. 在 package.json 中声明依赖
+Unity 会自动识别为本地包，无需额外配置。
+
+### 2. 通过 Git URL 安装
+
+在 `Packages/manifest.json` 中添加：
 
 ```json
 {
