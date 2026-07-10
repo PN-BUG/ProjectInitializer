@@ -2,8 +2,8 @@
   "name": "ProjectInitializer.Editor",
   "rootNamespace": "ProjectInitializer",
   "references": [
-    "EditorCore.Editor",
-    "EditorCore.Runtime"
+    "Nodin.Runtime",
+    "Nodin.Editor"
   ],
   "includePlatforms": [
     "Editor"
