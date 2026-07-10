@@ -20,7 +20,10 @@
 
 ## 依赖关系
 
-Nodin (com.zko.nodin) 由项目 manifest.json 统一提供。
+```
+ProjectInitializer
+  └── Nodin (com.zko.nodin) — package.json 自动解析
+```
 
 ## 目录结构
 
