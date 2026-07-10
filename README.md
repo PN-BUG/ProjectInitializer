@@ -20,10 +20,7 @@
 
 ## 依赖关系
 
-```
-ProjectInitializer
-  └── Nodin (com.zko.nodin)
-```
+Nodin (com.zko.nodin) 由项目 manifest.json 统一提供。
 
 ## 目录结构
 
@@ -36,7 +33,6 @@ ProjectInitializer/
 └── Editor/
     ├── ProjectInitializer.Editor.asmdef
     ├── ProjectInitializerWindow.cs      # 主窗口
-    ├── Nodin/                           → 子模块 (com.zko.nodin)
     ├── DirectoryTemplate/
     │   └── DirectoryTemplateCreator.cs  # 目录模板创建
     ├── PackageInstaller/
