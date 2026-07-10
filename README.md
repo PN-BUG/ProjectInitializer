@@ -22,8 +22,13 @@
 
 ```
 ProjectInitializer
-  └── Nodin (com.zko.nodin) — 由项目 manifest.json 提供
+  └── Nodin (com.zko.nodin) — 自动安装，无需手动配置
 ```
+
+Nodin 依赖通过 `Editor/Setup/NodinSetup.cs` 自动处理：
+- 首次加载时自动将 `com.zko.nodin` 写入 `manifest.json`
+- Unity 自动解析并下载 Nodin 包
+- 独立 asmdef（`ProjectInitializer.Setup`），不引用 Nodin，确保即使 Nodin 未安装也能编译
 
 ## 目录结构
 
@@ -36,6 +41,9 @@ ProjectInitializer/
 └── Editor/
     ├── ProjectInitializer.Editor.asmdef
     ├── ProjectInitializerWindow.cs      # 主窗口
+    ├── Setup/                           # 自动配置（独立程序集，不引用 Nodin）
+    │   ├── ProjectInitializer.Setup.asmdef
+    │   └── NodinSetup.cs               # [InitializeOnLoad] 自动写入 manifest.json
     ├── DirectoryTemplate/
     │   └── DirectoryTemplateCreator.cs  # 目录模板创建
     ├── PackageInstaller/
@@ -78,8 +86,8 @@ Unity 会自动识别为本地包，无需额外配置。
 {
   "references": [
     "ProjectInitializer.Editor",
-    "EditorCore.Editor",
-    "EditorCore.Runtime"
+    "Nodin.Runtime",
+    "Nodin.Editor"
   ]
 }
 ```
