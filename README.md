@@ -22,7 +22,7 @@
 
 ```
 ProjectInitializer
-  └── Nodin (com.zko.nodin) — package.json 自动解析
+  └── Nodin (com.zko.nodin) — 由项目 manifest.json 提供
 ```
 
 ## 目录结构
