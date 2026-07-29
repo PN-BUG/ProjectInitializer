@@ -1,7 +1,5 @@
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using UnityEditor;
 using UnityEditor.PackageManager;
 using UnityEditor.PackageManager.Requests;
@@ -99,7 +97,7 @@ namespace ProjectInitializer
         public void InstallPackages(List<PackageEntry> packages, System.Action onComplete)
         {
             // 确保 Nodin 依赖已就位
-            EnsureNodinInManifest();
+            Setup.NodinSetup.EnsureNodinDependency();
 
             _installCompleteCallback = onComplete;
             _installQueue.Clear();
@@ -179,44 +177,5 @@ namespace ProjectInitializer
             return _installedPackageNames;
         }
 
-        private const string NodinPackageName = "com.zko.nodin";
-        private const string NodinGitUrl = "https://github.com/PN-BUG/Nodin.git";
-
-        /// <summary>
-        /// 确保 manifest.json 中包含 com.zko.nodin 依赖。
-        /// Nodin 是 ProjectInitializer 和 UnityToolsHub 的核心依赖，
-        /// 嵌入式包的 package.json 依赖不会被 UPM 自动解析，必须在 manifest.json 中声明。
-        /// </summary>
-        public static bool EnsureNodinInManifest()
-        {
-            string manifestPath = Path.Combine(Application.dataPath, "..", "Packages", "manifest.json");
-            if (!File.Exists(manifestPath))
-            {
-                Debug.LogWarning("[ProjectInitializer] 未找到 manifest.json");
-                return false;
-            }
-
-            string content = File.ReadAllText(manifestPath);
-
-            // 精确匹配 JSON key："com.zko.nodin"（避免误匹配子字符串）
-            if (Regex.IsMatch(content, $"\"{Regex.Escape(NodinPackageName)}\"\\s*:"))
-                return true;
-
-            // 在 dependencies 的第一个条目前插入 com.zko.nodin
-            // 匹配 "dependencies": { 后的第一个引号
-            var match = Regex.Match(content, @"(""dependencies""\s*:\s*\{\s*\r?\n\s*)(""[^""]+"")");
-            if (!match.Success)
-            {
-                Debug.LogWarning("[ProjectInitializer] 无法解析 manifest.json 的 dependencies 块");
-                return false;
-            }
-
-            string insert = $"{match.Groups[1].Value}\"{NodinPackageName}\": \"{NodinGitUrl}\",\n    {match.Groups[2].Value}";
-            content = content.Substring(0, match.Index) + insert + content.Substring(match.Index + match.Length);
-
-            File.WriteAllText(manifestPath, content);
-            Debug.Log($"[ProjectInitializer] 已将 {NodinPackageName} 添加到 manifest.json");
-            return true;
-        }
     }
 }

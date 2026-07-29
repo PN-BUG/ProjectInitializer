@@ -2,6 +2,7 @@
   "name": "ProjectInitializer.Editor",
   "rootNamespace": "ProjectInitializer",
   "references": [
+    "ProjectInitializer.Setup",
     "Nodin.Runtime",
     "Nodin.Editor"
   ],
