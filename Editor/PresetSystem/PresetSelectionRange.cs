@@ -50,7 +50,12 @@ namespace ProjectInitializer
                 _mouseDownShift = currentEvent.shift;
             }
 
-            bool nextValue = EditorGUI.Toggle(rect, currentValue);
+            // 包和设置列表会提高 indentLevel；复选框已由布局定位，不能再缩进一次。
+            int originalIndent = EditorGUI.indentLevel;
+            EditorGUI.indentLevel = 0;
+            bool nextValue;
+            try { nextValue = EditorGUI.Toggle(rect, currentValue); }
+            finally { EditorGUI.indentLevel = originalIndent; }
             bool changed = nextValue != currentValue;
             if (changed)
             {

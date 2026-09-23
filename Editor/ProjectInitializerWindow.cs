@@ -150,7 +150,7 @@ namespace ProjectInitializer
         }
 
         /// <summary>
-        /// 自动取消勾选已存在的目录和已安装的包。
+        /// 自动取消勾选已存在的目录和插件，并查询依赖包安装状态。
         /// </summary>
         private void AutoUncheckExisting()
         {
@@ -189,16 +189,8 @@ namespace ProjectInitializer
                 _needsPackageCheck = false;
                 _packageInstaller.CheckPackages(_selectedPreset.packages, result =>
                 {
-                    if (result.success && _selectedPreset != null)
-                    {
-                        var installed = new HashSet<string>(result.installedPackages.Select(p => p.packageName));
-                        foreach (var pkg in _selectedPreset.packages)
-                        {
-                            if (pkg != null && pkg.selected && installed.Contains(pkg.packageName))
-                                pkg.selected = false;
-                        }
-                        Repaint();
-                    }
+                    // 安装状态只用于展示和执行时跳过，不覆盖用户在等待期间做出的勾选。
+                    Repaint();
                 });
             }
 
