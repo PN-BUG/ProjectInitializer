@@ -22,10 +22,11 @@ namespace ProjectInitializer
 
         // Scroll
         private Vector2 _dirScroll, _pkgScroll, _pluginScroll, _setScroll, _descScroll;
-        private int _dirSelectionAnchor = -1;
-        private int _pkgSelectionAnchor = -1;
-        private int _pluginSelectionAnchor = -1;
-        private int _setSelectionAnchor = -1;
+        private readonly PresetRangeToggle _dirRangeToggle = new PresetRangeToggle();
+        private readonly PresetRangeToggle _pkgRangeToggle = new PresetRangeToggle();
+        private readonly PresetRangeToggle _pluginRangeToggle = new PresetRangeToggle();
+        private readonly PresetRangeToggle _setRangeToggle = new PresetRangeToggle();
+        private readonly PresetMultiSelection<DirectoryEntry> _selectedDirectoryRows = new PresetMultiSelection<DirectoryEntry>();
 
         // 输入
         private string _newDirPath = string.Empty;
@@ -95,7 +96,11 @@ namespace ProjectInitializer
             bool local = path.StartsWith(PresetManager.PresetFolder + "/", StringComparison.Ordinal);
             _preset = preset != null && !local && !string.IsNullOrEmpty(path) ? preset.Clone() : preset;
             _isNewPreset = isNew || (!local && !string.IsNullOrEmpty(path));
-            _dirSelectionAnchor = _pkgSelectionAnchor = _pluginSelectionAnchor = _setSelectionAnchor = -1;
+            _dirRangeToggle.Reset();
+            _pkgRangeToggle.Reset();
+            _pluginRangeToggle.Reset();
+            _setRangeToggle.Reset();
+            _selectedDirectoryRows.Clear();
             _statusMessage = string.Empty;
         }
 
@@ -189,13 +194,9 @@ namespace ProjectInitializer
                 if (plugin == null) continue;
                 using (new EditorGUILayout.HorizontalScope("box"))
                 {
-                    bool shift = Event.current.shift;
-                    EditorGUI.BeginChangeCheck();
-                    bool copyFiles = EditorGUILayout.Toggle(plugin.copyFiles, GUILayout.Width(18));
-                    if (EditorGUI.EndChangeCheck())
+                    if (_pluginRangeToggle.Draw(_preset.plugins, i, plugin.copyFiles, 18f,
+                            (entry, value) => { if (entry != null) entry.copyFiles = value; }))
                     {
-                        PresetSelectionRange.Apply(_preset.plugins, i, copyFiles, shift,
-                            ref _pluginSelectionAnchor, (entry, value) => { if (entry != null) entry.copyFiles = value; });
                         MarkDirty();
                     }
                     GUILayout.Label(plugin.isDirectory ? "📁" : "📄", GUILayout.Width(22));
@@ -207,7 +208,7 @@ namespace ProjectInitializer
                     GUILayout.FlexibleSpace();
                     GUILayout.Label(PluginArchiveManager.PluginExists(plugin) ? "已在项目中" : "等待复制", _stMini, GUILayout.Width(70));
                     if (GUILayout.Button("✕", GUILayout.Width(22)))
-                    { _preset.plugins.RemoveAt(i--); _pluginSelectionAnchor = -1; MarkDirty(); }
+                    { _preset.plugins.RemoveAt(i--); _pluginRangeToggle.Reset(); MarkDirty(); }
                 }
             }
             EditorGUILayout.EndScrollView();
@@ -266,11 +267,25 @@ namespace ProjectInitializer
                 if (GUILayout.Button("读取当前项目", GUILayout.Width(90)))
                     ReadCurrentProjectDirectories();
                 if (GUILayout.Button("全选", GUILayout.Width(50)))
-                { foreach (var entry in _preset.directories) if (entry != null) entry.enabled = true; _dirSelectionAnchor = -1; MarkDirty(); }
+                { foreach (var entry in _preset.directories) if (entry != null) entry.enabled = true; _dirRangeToggle.Reset(); MarkDirty(); }
                 if (GUILayout.Button("全不选", GUILayout.Width(60)))
-                { foreach (var entry in _preset.directories) if (entry != null) entry.enabled = false; _dirSelectionAnchor = -1; MarkDirty(); }
+                { foreach (var entry in _preset.directories) if (entry != null) entry.enabled = false; _dirRangeToggle.Reset(); MarkDirty(); }
                 if (GUILayout.Button("清空", GUILayout.Width(45)))
-                { _preset.directories.Clear(); _dirSelectionAnchor = -1; MarkDirty(); }
+                { _preset.directories.Clear(); _dirRangeToggle.Reset(); _selectedDirectoryRows.Clear(); MarkDirty(); }
+            }
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.Label($"已选目录 {_selectedDirectoryRows.Count}", _stMini, GUILayout.Width(80));
+                EditorGUI.BeginDisabledGroup(_selectedDirectoryRows.Count == 0);
+                if (GUILayout.Button("勾选所选", GUILayout.Width(75)))
+                { _selectedDirectoryRows.Apply(true, (entry, value) => entry.enabled = value); MarkDirty(); }
+                if (GUILayout.Button("取消所选", GUILayout.Width(75)))
+                { _selectedDirectoryRows.Apply(false, (entry, value) => entry.enabled = value); MarkDirty(); }
+                if (GUILayout.Button("清除选择", GUILayout.Width(75)))
+                    _selectedDirectoryRows.Clear();
+                EditorGUI.EndDisabledGroup();
+                GUILayout.FlexibleSpace();
             }
 
             // 拖拽区
@@ -289,7 +304,7 @@ namespace ProjectInitializer
             }
 
             // 列表 — 分层树显示
-            EditorGUILayout.LabelField("Shift + 点击复选框可连续勾选；父目录按钮只操作该目录下的条目。", _stMini);
+            EditorGUILayout.LabelField("Shift 点击首尾复选框可连续勾选；也可点击名称选行后批量处理。", _stMini);
             _dirScroll = EditorGUILayout.BeginScrollView(_dirScroll, GUILayout.ExpandHeight(true));
 
             if (_preset.directories.Count == 0)
@@ -338,6 +353,7 @@ namespace ProjectInitializer
             var root = BuildDirTree(_preset.directories);
             var visibleEntries = new List<DirectoryEntry>();
             CollectDirectoryEntries(root, visibleEntries);
+            _selectedDirectoryRows.Prune(visibleEntries);
             foreach (var child in root.children)
                 DrawDirNode(child, 1, visibleEntries);
         }
@@ -358,27 +374,27 @@ namespace ProjectInitializer
                 if (node.entry != null)
                 {
                     bool exists = DirectoryTemplateCreator.DirectoryExists(node.entry.path);
-                    bool shift = Event.current.shift;
-                    EditorGUI.BeginChangeCheck();
-                    bool enabled = EditorGUILayout.Toggle(node.entry.enabled, GUILayout.Width(18));
-                    if (EditorGUI.EndChangeCheck())
+                    if (_dirRangeToggle.Draw(visibleEntries, visibleEntries.IndexOf(node.entry),
+                            node.entry.enabled, 18f, (entry, value) => entry.enabled = value))
                     {
-                        PresetSelectionRange.Apply(visibleEntries, visibleEntries.IndexOf(node.entry), enabled,
-                            shift, ref _dirSelectionAnchor, (entry, value) => entry.enabled = value);
                         MarkDirty();
                     }
-                    GUILayout.Label(node.name, EditorStyles.label, GUILayout.Width(Mathf.Max(60, node.name.Length * 8)));
-                    GUILayout.FlexibleSpace();
+                    bool rowShift = Event.current.shift;
+                    bool additive = Event.current.control || Event.current.command;
+                    if (PresetDirectoryRow.Draw(node.name, _selectedDirectoryRows.Contains(node.entry)))
+                        _selectedDirectoryRows.Click(visibleEntries, visibleEntries.IndexOf(node.entry), rowShift, additive);
 
                     var c = GUI.color;
                     GUI.color = exists ? ClrGreen : ClrDim;
-                    GUILayout.Label(exists ? "✓ 已存在" : "○ 未创建", _stMini, GUILayout.Width(55));
+                    GUILayout.Label(new GUIContent(exists ? "✓" : "○", exists ? "目录已存在" : "待创建"),
+                        _stMini, GUILayout.Width(18));
                     GUI.color = c;
 
                     if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(18)))
                     {
                         _preset.directories.Remove(node.entry);
-                        _dirSelectionAnchor = -1;
+                        _dirRangeToggle.Reset();
+                        _selectedDirectoryRows.Clear();
                         MarkDirty();
                     }
                 }
@@ -394,10 +410,8 @@ namespace ProjectInitializer
                     CollectDirectoryEntries(node, groupEntries);
                     GUILayout.Label($"{groupEntries.Count(e => e.enabled)}/{groupEntries.Count}",
                         _stMini, GUILayout.Width(38));
-                    if (GUILayout.Button("全选", GUILayout.Width(40)))
-                    { foreach (var entry in groupEntries) entry.enabled = true; _dirSelectionAnchor = -1; MarkDirty(); }
-                    if (GUILayout.Button("全不选", GUILayout.Width(50)))
-                    { foreach (var entry in groupEntries) entry.enabled = false; _dirSelectionAnchor = -1; MarkDirty(); }
+                    PresetDirectoryGroupMenu.Draw(groupEntries, () =>
+                    { _dirRangeToggle.Reset(); MarkDirty(); Repaint(); });
                 }
             }
 
@@ -548,13 +562,9 @@ namespace ProjectInitializer
                         GUILayout.Space(4);
                         DrawColorBar(bar, 3, 36);
 
-                        bool shift = Event.current.shift;
-                        EditorGUI.BeginChangeCheck();
-                        bool selected = EditorGUILayout.Toggle(entry.selected, GUILayout.Width(18));
-                        if (EditorGUI.EndChangeCheck())
+                        if (_pkgRangeToggle.Draw(_preset.packages, i, entry.selected, 18f,
+                                (item, value) => { if (item != null) item.selected = value; }))
                         {
-                            PresetSelectionRange.Apply(_preset.packages, i, selected, shift,
-                                ref _pkgSelectionAnchor, (item, value) => { if (item != null) item.selected = value; });
                             MarkDirty();
                         }
                         EditorGUI.BeginChangeCheck();
@@ -567,7 +577,7 @@ namespace ProjectInitializer
                         GUI.color = c;
 
                         if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(18)))
-                        { _preset.packages.RemoveAt(i); _pkgSelectionAnchor = -1; MarkDirty(); }
+                        { _preset.packages.RemoveAt(i); _pkgRangeToggle.Reset(); MarkDirty(); }
                     }
 
                     // ── 行2: 包名 + 规格 ──
@@ -812,13 +822,9 @@ namespace ProjectInitializer
                         GUILayout.Space(4);
                         DrawColorBar(bar, 3, 20);
 
-                        bool shift = Event.current.shift;
-                        EditorGUI.BeginChangeCheck();
-                        bool enabled = EditorGUILayout.Toggle(entry.enabled, GUILayout.Width(18));
-                        if (EditorGUI.EndChangeCheck())
+                        if (_setRangeToggle.Draw(_preset.settings, i, entry.enabled, 18f,
+                                (item, value) => { if (item != null) item.enabled = value; }))
                         {
-                            PresetSelectionRange.Apply(_preset.settings, i, enabled, shift,
-                                ref _setSelectionAnchor, (item, value) => { if (item != null) item.enabled = value; });
                             MarkDirty();
                         }
                         EditorGUI.BeginChangeCheck();
@@ -829,7 +835,7 @@ namespace ProjectInitializer
                         if (EditorGUI.EndChangeCheck()) MarkDirty();
 
                         if (GUILayout.Button("✕", GUILayout.Width(22), GUILayout.Height(18)))
-                        { _preset.settings.RemoveAt(i); _setSelectionAnchor = -1; MarkDirty(); }
+                        { _preset.settings.RemoveAt(i); _setRangeToggle.Reset(); MarkDirty(); }
                     }
                     GUILayout.Space(1);
                 }
