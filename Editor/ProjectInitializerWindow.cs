@@ -124,6 +124,7 @@ namespace ProjectInitializer
                 DestroyImmediate(_selectedPreset);
             _sourcePreset = source;
             _selectedPreset = source != null ? source.Clone() : null;
+            _dirSelectionAnchor = _pkgSelectionAnchor = _pluginSelectionAnchor = _setSelectionAnchor = -1;
             AutoUncheckExisting();
         }
 
@@ -393,12 +394,17 @@ namespace ProjectInitializer
         private bool _pkgFoldout = true;
         private bool _pluginFoldout = true;
         private bool _setFoldout = true;
+        private int _dirSelectionAnchor = -1;
+        private int _pkgSelectionAnchor = -1;
+        private int _pluginSelectionAnchor = -1;
+        private int _setSelectionAnchor = -1;
 
         private void DrawPresetOverview()
         {
-            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.BeginVertical("box", GUILayout.ExpandHeight(true));
 
-            _overviewScroll = EditorGUILayout.BeginScrollView(_overviewScroll, GUILayout.MaxHeight(360));
+            _overviewScroll = EditorGUILayout.BeginScrollView(_overviewScroll,
+                GUILayout.MinHeight(120), GUILayout.ExpandHeight(true));
 
             DrawDirectoryOverviewTree();
             EditorGUILayout.Space(4);
@@ -528,43 +534,74 @@ namespace ProjectInitializer
                 return;
             }
 
+            EditorGUILayout.LabelField("  Shift + 点击复选框可连续勾选；父目录按钮只操作该目录下的条目。",
+                EditorStyles.miniLabel);
             // 构建并绘制分层树
             var root = BuildDirectoryTree(_selectedPreset.directories);
-            DrawDirNodeTree(root, 0);
+            var visibleEntries = new List<DirectoryEntry>();
+            CollectDirectoryEntries(root, visibleEntries);
+            foreach (var child in root.children)
+                DrawDirNodeTree(child, 1, visibleEntries);
         }
 
-        private void DrawDirNodeTree(DirNode node, int depth)
+        private static void CollectDirectoryEntries(DirNode node, List<DirectoryEntry> entries)
         {
-            if (depth > 0)
-            {
-                EditorGUILayout.BeginHorizontal();
-                GUILayout.Space(depth * 16);
+            if (node.entry != null) entries.Add(node.entry);
+            foreach (var child in node.children)
+                CollectDirectoryEntries(child, entries);
+        }
 
-                if (node.entry != null)
+        private void DrawDirNodeTree(DirNode node, int depth, List<DirectoryEntry> visibleEntries)
+        {
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Space(depth * 16);
+
+            if (node.entry != null)
+            {
+                bool exists = DirectoryTemplateCreator.DirectoryExists(node.entry.path);
+                bool shift = Event.current.shift;
+                EditorGUI.BeginChangeCheck();
+                bool enabled = EditorGUILayout.Toggle(node.entry.enabled, GUILayout.Width(16));
+                if (EditorGUI.EndChangeCheck())
                 {
-                    // 叶子节点 — 可勾选
-                    bool exists = DirectoryTemplateCreator.DirectoryExists(node.entry.path);
-                    EditorGUI.BeginChangeCheck();
-                    node.entry.enabled = EditorGUILayout.Toggle(node.entry.enabled, GUILayout.Width(16));
-                    if (EditorGUI.EndChangeCheck()) MarkDirty();
-                    EditorGUILayout.LabelField(node.name, EditorStyles.miniLabel);
-                    GUILayout.FlexibleSpace();
-                    var c = GUI.color;
-                    GUI.color = exists ? new Color(0.5f, 0.8f, 0.5f) : new Color(0.7f, 0.7f, 0.7f);
-                    GUILayout.Label(exists ? "已存在" : "未创建", EditorStyles.miniLabel, GUILayout.Width(45));
-                    GUI.color = c;
+                    PresetSelectionRange.Apply(visibleEntries, visibleEntries.IndexOf(node.entry), enabled,
+                        shift, ref _dirSelectionAnchor, (entry, value) => entry.enabled = value);
+                    MarkDirty();
                 }
-                else
-                {
-                    // 分组节点 — 只显示名称
-                    EditorGUILayout.LabelField($"📂 {node.name}", EditorStyles.miniBoldLabel);
-                    GUILayout.FlexibleSpace();
-                }
-                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.LabelField(node.name, EditorStyles.miniLabel);
+                GUILayout.FlexibleSpace();
+                var c = GUI.color;
+                GUI.color = exists ? new Color(0.5f, 0.8f, 0.5f) : new Color(0.7f, 0.7f, 0.7f);
+                GUILayout.Label(exists ? "已存在" : "未创建", EditorStyles.miniLabel, GUILayout.Width(45));
+                GUI.color = c;
+            }
+            else
+            {
+                EditorGUILayout.LabelField($"📂 {node.name}", EditorStyles.miniBoldLabel);
+                GUILayout.FlexibleSpace();
             }
 
+            if (node.children.Count > 0)
+            {
+                var groupEntries = new List<DirectoryEntry>();
+                CollectDirectoryEntries(node, groupEntries);
+                GUILayout.Label($"{groupEntries.Count(e => e.enabled)}/{groupEntries.Count}",
+                    EditorStyles.miniLabel, GUILayout.Width(38));
+                if (GUILayout.Button("全选", GUILayout.Width(40)))
+                {
+                    foreach (var entry in groupEntries) entry.enabled = true;
+                    _dirSelectionAnchor = -1;
+                }
+                if (GUILayout.Button("全不选", GUILayout.Width(50)))
+                {
+                    foreach (var entry in groupEntries) entry.enabled = false;
+                    _dirSelectionAnchor = -1;
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
             foreach (var child in node.children)
-                DrawDirNodeTree(child, depth + 1);
+                DrawDirNodeTree(child, depth + 1, visibleEntries);
         }
 
         #endregion
@@ -639,6 +676,8 @@ namespace ProjectInitializer
             if (others.Count > 0)
                 groups.Add(("📦 其他", others));
 
+            var visiblePackages = groups.SelectMany(group => group.items).ToList();
+
             // 绘制分组
             foreach (var (label, items) in groups)
             {
@@ -673,9 +712,15 @@ namespace ProjectInitializer
                         EditorGUILayout.LabelField(isFirst ? "├" : "├", EditorStyles.miniLabel, GUILayout.Width(12));
                     }
 
+                    bool shift = Event.current.shift;
                     EditorGUI.BeginChangeCheck();
-                    pkg.selected = EditorGUILayout.Toggle(pkg.selected, GUILayout.Width(16));
-                    if (EditorGUI.EndChangeCheck()) MarkDirty();
+                    bool selected = EditorGUILayout.Toggle(pkg.selected, GUILayout.Width(16));
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        PresetSelectionRange.Apply(visiblePackages, visiblePackages.IndexOf(pkg), selected,
+                            shift, ref _pkgSelectionAnchor, (entry, value) => entry.selected = value);
+                        MarkDirty();
+                    }
 
                     EditorGUILayout.LabelField(pkg.displayName, EditorStyles.miniLabel, GUILayout.Width(120));
                     EditorGUILayout.LabelField(pkg.packageName, EditorStyles.miniLabel);
@@ -748,9 +793,15 @@ namespace ProjectInitializer
                         var setting = _selectedPreset.settings[i];
                         if (setting == null) continue;
                         EditorGUILayout.BeginHorizontal();
+                        bool shift = Event.current.shift;
                         EditorGUI.BeginChangeCheck();
-                        setting.enabled = EditorGUILayout.Toggle(setting.enabled, GUILayout.Width(16));
-                        if (EditorGUI.EndChangeCheck()) MarkDirty();
+                        bool enabled = EditorGUILayout.Toggle(setting.enabled, GUILayout.Width(16));
+                        if (EditorGUI.EndChangeCheck())
+                        {
+                            PresetSelectionRange.Apply(_selectedPreset.settings, i, enabled,
+                                shift, ref _setSelectionAnchor, (entry, value) => { if (entry != null) entry.enabled = value; });
+                            MarkDirty();
+                        }
                         EditorGUILayout.LabelField($"[{setting.category}] {setting.key} = {setting.value}", EditorStyles.miniLabel);
                         EditorGUILayout.EndHorizontal();
                     }
@@ -776,12 +827,18 @@ namespace ProjectInitializer
             }
             if (!_pluginFoldout) return;
             if (plugins.Count == 0) { EditorGUILayout.LabelField("  (无)", EditorStyles.miniLabel); return; }
-            foreach (var plugin in plugins)
+            for (int i = 0; i < plugins.Count; i++)
             {
+                var plugin = plugins[i];
                 if (plugin == null) continue;
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    plugin.copyFiles = EditorGUILayout.Toggle(plugin.copyFiles, GUILayout.Width(16));
+                    bool shift = Event.current.shift;
+                    EditorGUI.BeginChangeCheck();
+                    bool copyFiles = EditorGUILayout.Toggle(plugin.copyFiles, GUILayout.Width(16));
+                    if (EditorGUI.EndChangeCheck())
+                        PresetSelectionRange.Apply(plugins, i, copyFiles, shift, ref _pluginSelectionAnchor,
+                            (entry, value) => { if (entry != null) entry.copyFiles = value; });
                     EditorGUILayout.LabelField(plugin.path, EditorStyles.miniLabel);
                     GUILayout.Label(PluginArchiveManager.PluginExists(plugin) ? "已存在" : "待复制",
                         EditorStyles.miniLabel, GUILayout.Width(48));
