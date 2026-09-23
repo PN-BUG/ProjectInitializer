@@ -45,6 +45,7 @@ namespace ProjectInitializer
         private Vector2 _logScroll;
         private Vector2 _overviewScroll;
         private Vector2 _windowScroll;
+        private float _overviewHeight = 140f;
         private readonly List<ExecutionLog> _executionLogs = new List<ExecutionLog>();
 
         private PackageInstaller _packageInstaller;
@@ -200,7 +201,9 @@ namespace ProjectInitializer
             EditorGUILayout.Space(6);
             DrawTitle();
             EditorGUILayout.Space(4);
+            float contentTop = GUILayoutUtility.GetLastRect().yMax;
             _windowScroll = EditorGUILayout.BeginScrollView(_windowScroll, GUILayout.ExpandHeight(true));
+            Rect contentStart = GUILayoutUtility.GetRect(0f, 0f, GUILayout.Width(0f));
             DrawSourceProjectPanel();
             EditorGUILayout.Space(4);
 
@@ -246,6 +249,18 @@ namespace ProjectInitializer
 
             EditorGUILayout.Space(6);
             DrawFooter();
+            Rect contentEnd = GUILayoutUtility.GetLastRect();
+            if (_selectedPreset != null && _showOverviewStep && Event.current.type == EventType.Repaint)
+            {
+                float otherContentHeight = contentEnd.yMax - contentStart.yMin - _overviewHeight;
+                float availableHeight = position.height - contentTop - 4f;
+                float desiredHeight = Mathf.Max(140f, availableHeight - otherContentHeight);
+                if (Mathf.Abs(desiredHeight - _overviewHeight) > 2f)
+                {
+                    _overviewHeight = desiredHeight;
+                    Repaint();
+                }
+            }
             EditorGUILayout.EndScrollView();
         }
 
@@ -453,10 +468,9 @@ namespace ProjectInitializer
         {
             EditorGUILayout.BeginVertical("box");
 
-            // 主窗口可滚动时，给嵌套的概览列表明确的自适应高度。
-            float listHeight = Mathf.Max(140f, position.height * 0.45f);
+            // 列表高度在 OnGUI 末尾根据其他区域的实际布局高度调整。
             _overviewScroll = EditorGUILayout.BeginScrollView(_overviewScroll,
-                GUILayout.Height(listHeight));
+                GUILayout.Height(_overviewHeight));
 
             DrawDirectoryOverviewTree();
             EditorGUILayout.Space(4);
