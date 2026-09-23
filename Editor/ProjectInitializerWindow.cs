@@ -16,6 +16,11 @@ namespace ProjectInitializer
         private const string DoNotShowKey = "ProjectInitializer.DoNotShow";
         private const string SessionOpenedKey = "ProjectInitializer.SessionOpened";
         private const string SourceProjectKey = "ProjectInitializer.SourceProject";
+        private const string SourceFoldoutKey = "ProjectInitializer.Foldout.Source";
+        private const string PresetFoldoutKey = "ProjectInitializer.Foldout.Preset";
+        private const string OverviewFoldoutKey = "ProjectInitializer.Foldout.Overview";
+        private const string OptionsFoldoutKey = "ProjectInitializer.Foldout.Options";
+        private const string LogFoldoutKey = "ProjectInitializer.Foldout.Log";
 
         [Serializable]
         private class ExecutionLog
@@ -39,6 +44,7 @@ namespace ProjectInitializer
 
         private Vector2 _logScroll;
         private Vector2 _overviewScroll;
+        private Vector2 _windowScroll;
         private readonly List<ExecutionLog> _executionLogs = new List<ExecutionLog>();
 
         private PackageInstaller _packageInstaller;
@@ -46,6 +52,11 @@ namespace ProjectInitializer
         private string _sourceProjectStatus;
         private bool _isExecuting;
         private bool _pkgInstalled;
+        private bool _showSourceProject;
+        private bool _showPresetStep;
+        private bool _showOverviewStep;
+        private bool _showOptionsStep;
+        private bool _showLogStep;
 
         // 执行选项
         private bool _optCreateDirectories = true;
@@ -57,7 +68,7 @@ namespace ProjectInitializer
         public static void ShowWindow()
         {
             var window = GetWindow<ProjectInitializerWindow>("项目初始化工具");
-            window.minSize = new Vector2(660, 580);
+            window.minSize = new Vector2(660, 360);
             window.Show();
         }
 
@@ -84,6 +95,11 @@ namespace ProjectInitializer
         {
             _packageInstaller = new PackageInstaller();
             _sourceProjectRoot = EditorPrefs.GetString(SourceProjectKey, string.Empty);
+            _showSourceProject = EditorPrefs.GetBool(SourceFoldoutKey, false);
+            _showPresetStep = EditorPrefs.GetBool(PresetFoldoutKey, true);
+            _showOverviewStep = EditorPrefs.GetBool(OverviewFoldoutKey, false);
+            _showOptionsStep = EditorPrefs.GetBool(OptionsFoldoutKey, true);
+            _showLogStep = EditorPrefs.GetBool(LogFoldoutKey, false);
             RefreshPresets();
         }
 
@@ -184,37 +200,44 @@ namespace ProjectInitializer
             EditorGUILayout.Space(6);
             DrawTitle();
             EditorGUILayout.Space(4);
+            _windowScroll = EditorGUILayout.BeginScrollView(_windowScroll, GUILayout.ExpandHeight(true));
             DrawSourceProjectPanel();
-            EditorGUILayout.Space(6);
+            EditorGUILayout.Space(4);
 
             if (_selectedPreset != null)
             {
-                DrawSection("① 选择预设", ClrAccent);
-                EditorGUILayout.Space(2);
-                EditorGUI.BeginDisabledGroup(_isExecuting);
-                DrawPresetSelector();
-                EditorGUI.EndDisabledGroup();
-                EditorGUILayout.Space(8);
-
-                DrawSection("② 预设概览（可勾选）", new Color(0.35f, 0.70f, 0.75f));
-                EditorGUILayout.Space(2);
-                EditorGUI.BeginDisabledGroup(_isExecuting);
-                DrawPresetOverview();
-                EditorGUI.EndDisabledGroup();
-                EditorGUILayout.Space(8);
-
-                DrawSection("③ 执行选项", new Color(0.55f, 0.45f, 0.85f));
-                EditorGUILayout.Space(2);
-                EditorGUI.BeginDisabledGroup(_isExecuting);
-                DrawExecutionOptions();
-                EditorGUI.EndDisabledGroup();
+                DrawFoldoutSection("① 选择预设", ClrAccent, ref _showPresetStep, PresetFoldoutKey);
+                if (_showPresetStep)
+                {
+                    EditorGUI.BeginDisabledGroup(_isExecuting);
+                    DrawPresetSelector();
+                    EditorGUI.EndDisabledGroup();
+                }
                 EditorGUILayout.Space(4);
-                DrawExecuteButton();
-                EditorGUILayout.Space(8);
 
-                DrawSection("④ 执行日志", new Color(0.80f, 0.65f, 0.25f));
-                EditorGUILayout.Space(2);
-                DrawExecutionLog();
+                DrawFoldoutSection(
+                    $"② 预设概览 · 目录 {_selectedPreset.EnabledDirectoryCount} / 包 {_selectedPreset.SelectedPackageCount} / 插件 {_selectedPreset.SelectedPluginCount} / 设置 {_selectedPreset.EnabledSettingsCount}",
+                    ClrTeal, ref _showOverviewStep, OverviewFoldoutKey);
+                if (_showOverviewStep)
+                {
+                    EditorGUI.BeginDisabledGroup(_isExecuting);
+                    DrawPresetOverview();
+                    EditorGUI.EndDisabledGroup();
+                }
+                EditorGUILayout.Space(4);
+
+                DrawFoldoutSection("③ 执行选项", ClrPurple, ref _showOptionsStep, OptionsFoldoutKey);
+                if (_showOptionsStep)
+                {
+                    EditorGUI.BeginDisabledGroup(_isExecuting);
+                    DrawExecutionOptions();
+                    EditorGUI.EndDisabledGroup();
+                    DrawExecuteButton();
+                }
+                EditorGUILayout.Space(4);
+
+                DrawFoldoutSection($"④ 执行日志 ({_executionLogs.Count})", ClrOrange, ref _showLogStep, LogFoldoutKey);
+                if (_showLogStep) DrawExecutionLog();
             }
             else
             {
@@ -223,6 +246,7 @@ namespace ProjectInitializer
 
             EditorGUILayout.Space(6);
             DrawFooter();
+            EditorGUILayout.EndScrollView();
         }
 
         #region Title
@@ -250,6 +274,19 @@ namespace ProjectInitializer
             EditorGUILayout.EndHorizontal();
         }
 
+        private static void DrawFoldoutSection(string title, Color accent, ref bool expanded, string preferenceKey)
+        {
+            EditorGUILayout.BeginHorizontal();
+            Rect bar = GUILayoutUtility.GetRect(3, 18, GUILayout.Width(3));
+            EditorGUI.DrawRect(bar, accent);
+            GUILayout.Space(6);
+            bool next = EditorGUILayout.Foldout(expanded, title, true, EditorStyles.foldoutHeader);
+            EditorGUILayout.EndHorizontal();
+            if (next == expanded) return;
+            expanded = next;
+            EditorPrefs.SetBool(preferenceKey, expanded);
+        }
+
         private void DrawTitle()
         {
             EditorGUILayout.BeginHorizontal();
@@ -272,7 +309,20 @@ namespace ProjectInitializer
         private void DrawSourceProjectPanel()
         {
             EditorGUILayout.BeginVertical("box");
-            EditorGUILayout.LabelField("从其他 Unity 项目读取", EditorStyles.boldLabel);
+            string title = string.IsNullOrEmpty(_sourceProjectRoot)
+                ? "从其他 Unity 项目读取"
+                : $"从其他 Unity 项目读取 · {System.IO.Path.GetFileName(_sourceProjectRoot.TrimEnd('/', '\\'))}";
+            bool expanded = EditorGUILayout.Foldout(_showSourceProject, title, true, EditorStyles.foldoutHeader);
+            if (expanded != _showSourceProject)
+            {
+                _showSourceProject = expanded;
+                EditorPrefs.SetBool(SourceFoldoutKey, expanded);
+            }
+            if (!_showSourceProject)
+            {
+                EditorGUILayout.EndVertical();
+                return;
+            }
             using (new EditorGUILayout.HorizontalScope())
             {
                 EditorGUILayout.SelectableLabel(string.IsNullOrEmpty(_sourceProjectRoot) ? "尚未选择项目" : _sourceProjectRoot,
@@ -401,10 +451,12 @@ namespace ProjectInitializer
 
         private void DrawPresetOverview()
         {
-            EditorGUILayout.BeginVertical("box", GUILayout.ExpandHeight(true));
+            EditorGUILayout.BeginVertical("box");
 
+            // 主窗口可滚动时，给嵌套的概览列表明确的自适应高度。
+            float listHeight = Mathf.Max(140f, position.height * 0.45f);
             _overviewScroll = EditorGUILayout.BeginScrollView(_overviewScroll,
-                GUILayout.MinHeight(120), GUILayout.ExpandHeight(true));
+                GUILayout.Height(listHeight));
 
             DrawDirectoryOverviewTree();
             EditorGUILayout.Space(4);
@@ -893,6 +945,8 @@ namespace ProjectInitializer
         private void StartExecution()
         {
             _executionLogs.Clear();
+            _showLogStep = true;
+            EditorPrefs.SetBool(LogFoldoutKey, true);
             _isExecuting = true;
             _pkgInstalled = false;
 
