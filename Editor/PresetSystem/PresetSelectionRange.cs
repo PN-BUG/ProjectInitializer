@@ -128,7 +128,7 @@ namespace ProjectInitializer
     {
         private static GUIStyle _labelStyle;
 
-        public static bool Draw(string label, bool selected)
+        public static bool Draw(string label, bool selected, bool dimmed = false)
         {
             if (_labelStyle == null)
             {
@@ -148,7 +148,12 @@ namespace ProjectInitializer
                         ? new Color(0.20f, 0.39f, 0.59f, 0.65f)
                         : new Color(0.43f, 0.67f, 0.91f, 0.55f));
             }
-            return GUI.Toggle(rect, selected, label, _labelStyle) != selected;
+            Color originalContentColor = GUI.contentColor;
+            if (dimmed)
+                GUI.contentColor = new Color(originalContentColor.r, originalContentColor.g,
+                    originalContentColor.b, originalContentColor.a * 0.45f);
+            try { return GUI.Toggle(rect, selected, label, _labelStyle) != selected; }
+            finally { GUI.contentColor = originalContentColor; }
         }
     }
 

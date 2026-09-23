@@ -355,7 +355,7 @@ namespace ProjectInitializer
             CollectDirectoryEntries(root, visibleEntries);
             _selectedDirectoryRows.Prune(visibleEntries);
             foreach (var child in root.children)
-                DrawDirNode(child, 1, visibleEntries);
+                DrawDirNode(child, 1, visibleEntries, true);
         }
 
         private static void CollectDirectoryEntries(DirNode node, List<DirectoryEntry> entries)
@@ -365,7 +365,8 @@ namespace ProjectInitializer
                 CollectDirectoryEntries(child, entries);
         }
 
-        private void DrawDirNode(DirNode node, int depth, List<DirectoryEntry> visibleEntries)
+        private void DrawDirNode(DirNode node, int depth, List<DirectoryEntry> visibleEntries,
+            bool parentEnabled)
         {
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -381,7 +382,8 @@ namespace ProjectInitializer
                     }
                     bool rowShift = Event.current.shift;
                     bool additive = Event.current.control || Event.current.command;
-                    if (PresetDirectoryRow.Draw(node.name, _selectedDirectoryRows.Contains(node.entry)))
+                    if (PresetDirectoryRow.Draw(node.name, _selectedDirectoryRows.Contains(node.entry),
+                            !parentEnabled))
                         _selectedDirectoryRows.Click(visibleEntries, visibleEntries.IndexOf(node.entry), rowShift, additive);
 
                     var c = GUI.color;
@@ -400,7 +402,12 @@ namespace ProjectInitializer
                 }
                 else
                 {
+                    Color originalContentColor = GUI.contentColor;
+                    if (!parentEnabled)
+                        GUI.contentColor = new Color(originalContentColor.r, originalContentColor.g,
+                            originalContentColor.b, originalContentColor.a * 0.45f);
                     GUILayout.Label($"📂 {node.name}", _stMiniBold);
+                    GUI.contentColor = originalContentColor;
                     GUILayout.FlexibleSpace();
                 }
 
@@ -415,8 +422,9 @@ namespace ProjectInitializer
                 }
             }
 
+            bool childrenEnabled = parentEnabled && (node.entry == null || node.entry.enabled);
             foreach (var child in node.children)
-                DrawDirNode(child, depth + 1, visibleEntries);
+                DrawDirNode(child, depth + 1, visibleEntries, childrenEnabled);
         }
 
         private void HandleDirectoryDragDrop()
