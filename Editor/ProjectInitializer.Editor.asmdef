@@ -1,11 +1,7 @@
 {
   "name": "ProjectInitializer.Editor",
   "rootNamespace": "ProjectInitializer",
-  "references": [
-    "ProjectInitializer.Setup",
-    "Nodin.Runtime",
-    "Nodin.Editor"
-  ],
+  "references": [],
   "includePlatforms": [
     "Editor"
   ],
@@ -14,15 +10,7 @@
   "overrideReferences": false,
   "precompiledReferences": [],
   "autoReferenced": true,
-  "defineConstraints": [
-    "HAS_NODIN"
-  ],
-  "versionDefines": [
-    {
-      "name": "com.zko.nodin",
-      "expression": "",
-      "define": "HAS_NODIN"
-    }
-  ],
+  "defineConstraints": [],
+  "versionDefines": [],
   "noEngineReferences": false
 }

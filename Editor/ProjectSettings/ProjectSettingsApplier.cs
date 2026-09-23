@@ -128,6 +128,8 @@ namespace ProjectInitializer
 
         private static bool ApplyScriptingDefine(string symbol, string value)
         {
+            if (string.IsNullOrWhiteSpace(symbol)) return false;
+            if (!string.IsNullOrEmpty(value) && !bool.TryParse(value, out _)) return false;
             // value 为 "true" 或 "false" 决定是否添加该 define
             bool enable = string.IsNullOrEmpty(value) || value.Equals("true", System.StringComparison.OrdinalIgnoreCase);
 
@@ -192,15 +194,14 @@ namespace ProjectInitializer
                 case "scriptingbackend":
                     if (value.Equals("il2cpp", System.StringComparison.OrdinalIgnoreCase))
                         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
-                    else
+                    else if (value.Equals("mono", System.StringComparison.OrdinalIgnoreCase))
                         PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.Mono2x);
+                    else return false;
                     return true;
 
                 case "apiversion":
-                    if (value.Equals("il2cpp", System.StringComparison.OrdinalIgnoreCase))
-                        PlayerSettings.SetApiCompatibilityLevel(NamedBuildTarget.Android, ApiCompatibilityLevel.NET_Standard);
-                    else
-                        PlayerSettings.SetApiCompatibilityLevel(NamedBuildTarget.Android, ApiCompatibilityLevel.NET_4_6);
+                    if (!System.Enum.TryParse(value, true, out ApiCompatibilityLevel androidApi)) return false;
+                    PlayerSettings.SetApiCompatibilityLevel(NamedBuildTarget.Android, androidApi);
                     return true;
 
                 default:
@@ -230,8 +231,9 @@ namespace ProjectInitializer
                 case "scriptingbackend":
                     if (value.Equals("il2cpp", System.StringComparison.OrdinalIgnoreCase))
                         PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.IL2CPP);
-                    else
+                    else if (value.Equals("mono", System.StringComparison.OrdinalIgnoreCase))
                         PlayerSettings.SetScriptingBackend(NamedBuildTarget.iOS, ScriptingImplementation.Mono2x);
+                    else return false;
                     return true;
 
                 case "cameradescription":
@@ -257,13 +259,10 @@ namespace ProjectInitializer
             switch (key?.ToLowerInvariant())
             {
                 case "colorspace":
+                    if (!value.Equals("linear", System.StringComparison.OrdinalIgnoreCase) &&
+                        !value.Equals("gamma", System.StringComparison.OrdinalIgnoreCase)) return false;
                     bool linear = value.Equals("linear", System.StringComparison.OrdinalIgnoreCase);
                     PlayerSettings.colorSpace = linear ? ColorSpace.Linear : ColorSpace.Gamma;
-                    return true;
-
-                case "usetiasafeMode":
-                case "usegfxdeviceasync":
-                    // 占位：可按需扩展
                     return true;
 
                 default:

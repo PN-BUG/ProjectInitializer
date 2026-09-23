@@ -9,18 +9,12 @@ namespace ProjectInitializer.Setup
     /// <summary>
     /// The single authority for keeping the project's Nodin package reference valid.
     /// </summary>
-    [InitializeOnLoad]
     public static class NodinSetup
     {
         private const string PackageName = "com.zko.nodin";
         private const string EmbeddedPackageReference = "file:nodin";
         private const string GitPackageReference = "https://github.com/PN-BUG/Nodin.git";
         private const string SessionStateKey = "ProjectInitializer.NodinSetup.ManifestStamp";
-
-        static NodinSetup()
-        {
-            EnsureNodinDependency();
-        }
 
         /// <summary>
         /// Keeps manifest.json aligned with the package source that is actually present.

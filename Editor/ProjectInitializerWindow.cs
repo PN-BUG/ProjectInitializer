@@ -15,6 +15,7 @@ namespace ProjectInitializer
     {
         private const string DoNotShowKey = "ProjectInitializer.DoNotShow";
         private const string SessionOpenedKey = "ProjectInitializer.SessionOpened";
+        private const string SourceProjectKey = "ProjectInitializer.SourceProject";
 
         [Serializable]
         private class ExecutionLog
@@ -34,25 +35,29 @@ namespace ProjectInitializer
         private List<ProjectInitPreset> _presets;
         private int _selectedPresetIndex;
         private ProjectInitPreset _selectedPreset;
+        private ProjectInitPreset _sourcePreset;
 
         private Vector2 _logScroll;
         private Vector2 _overviewScroll;
         private readonly List<ExecutionLog> _executionLogs = new List<ExecutionLog>();
 
         private PackageInstaller _packageInstaller;
+        private string _sourceProjectRoot;
+        private string _sourceProjectStatus;
         private bool _isExecuting;
         private bool _pkgInstalled;
 
         // 执行选项
         private bool _optCreateDirectories = true;
         private bool _optInstallPackages = true;
+        private bool _optCopyPlugins = true;
         private bool _optApplySettings = true;
 
         [MenuItem("Tools/项目初始化工具", priority = 0)]
         public static void ShowWindow()
         {
             var window = GetWindow<ProjectInitializerWindow>("项目初始化工具");
-            window.minSize = new Vector2(560, 480);
+            window.minSize = new Vector2(660, 580);
             window.Show();
         }
 
@@ -78,12 +83,15 @@ namespace ProjectInitializer
         private void OnEnable()
         {
             _packageInstaller = new PackageInstaller();
+            _sourceProjectRoot = EditorPrefs.GetString(SourceProjectKey, string.Empty);
             RefreshPresets();
         }
 
         private void OnDisable()
         {
             EditorPrefs.SetBool(DoNotShowKey, _doNotShowAgain);
+            if (_selectedPreset != null)
+                DestroyImmediate(_selectedPreset);
         }
 
         private void RefreshPresets()
@@ -102,13 +110,21 @@ namespace ProjectInitializer
             if (_presets.Count > 0)
             {
                 _selectedPresetIndex = Mathf.Clamp(_selectedPresetIndex, 0, _presets.Count - 1);
-                _selectedPreset = _presets[_selectedPresetIndex];
-                AutoUncheckExisting();
+                SelectPreset(_presets[_selectedPresetIndex]);
             }
             else
             {
-                _selectedPreset = null;
+                SelectPreset(null);
             }
+        }
+
+        private void SelectPreset(ProjectInitPreset source)
+        {
+            if (_selectedPreset != null)
+                DestroyImmediate(_selectedPreset);
+            _sourcePreset = source;
+            _selectedPreset = source != null ? source.Clone() : null;
+            AutoUncheckExisting();
         }
 
         /// <summary>
@@ -126,6 +142,13 @@ namespace ProjectInitializer
                     if (dir != null && dir.enabled && DirectoryTemplateCreator.DirectoryExists(dir.path))
                         dir.enabled = false;
                 }
+            }
+
+            if (_selectedPreset.plugins != null)
+            {
+                foreach (var plugin in _selectedPreset.plugins)
+                    if (plugin != null && plugin.copyFiles && PluginArchiveManager.PluginExists(plugin))
+                        plugin.copyFiles = false;
             }
 
             // 包：包安装检查是异步的，先标记需要检查
@@ -160,22 +183,30 @@ namespace ProjectInitializer
             EditorGUILayout.Space(6);
             DrawTitle();
             EditorGUILayout.Space(4);
+            DrawSourceProjectPanel();
+            EditorGUILayout.Space(6);
 
             if (_selectedPreset != null)
             {
                 DrawSection("① 选择预设", ClrAccent);
                 EditorGUILayout.Space(2);
+                EditorGUI.BeginDisabledGroup(_isExecuting);
                 DrawPresetSelector();
+                EditorGUI.EndDisabledGroup();
                 EditorGUILayout.Space(8);
 
                 DrawSection("② 预设概览（可勾选）", new Color(0.35f, 0.70f, 0.75f));
                 EditorGUILayout.Space(2);
+                EditorGUI.BeginDisabledGroup(_isExecuting);
                 DrawPresetOverview();
+                EditorGUI.EndDisabledGroup();
                 EditorGUILayout.Space(8);
 
                 DrawSection("③ 执行选项", new Color(0.55f, 0.45f, 0.85f));
                 EditorGUILayout.Space(2);
+                EditorGUI.BeginDisabledGroup(_isExecuting);
                 DrawExecutionOptions();
+                EditorGUI.EndDisabledGroup();
                 EditorGUILayout.Space(4);
                 DrawExecuteButton();
                 EditorGUILayout.Space(8);
@@ -237,6 +268,59 @@ namespace ProjectInitializer
 
         #region Preset Selector
 
+        private void DrawSourceProjectPanel()
+        {
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("从其他 Unity 项目读取", EditorStyles.boldLabel);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                EditorGUILayout.SelectableLabel(string.IsNullOrEmpty(_sourceProjectRoot) ? "尚未选择项目" : _sourceProjectRoot,
+                    EditorStyles.textField, GUILayout.Height(EditorGUIUtility.singleLineHeight + 3));
+                if (GUILayout.Button("选择项目目录", GUILayout.Width(105)))
+                {
+                    string path = EditorUtility.OpenFolderPanel("选择 Unity 项目根目录", _sourceProjectRoot, string.Empty);
+                    if (!string.IsNullOrEmpty(path))
+                    {
+                        _sourceProjectRoot = path;
+                        EditorPrefs.SetString(SourceProjectKey, path);
+                        _sourceProjectStatus = PresetManager.IsUnityProject(path)
+                            ? "已选择 Unity 项目。可导入它的预设，或直接扫描项目生成新预设。"
+                            : "所选目录不是 Unity 项目根目录。";
+                    }
+                }
+            }
+            bool valid = PresetManager.IsUnityProject(_sourceProjectRoot);
+            EditorGUI.BeginDisabledGroup(!valid || _isExecuting);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("读取该项目的预设", GUILayout.Height(25)))
+                {
+                    try
+                    {
+                        var paths = PresetManager.ImportPresetsFromProject(_sourceProjectRoot);
+                        RefreshPresets();
+                        if (paths.Count > 0)
+                        {
+                            _selectedPresetIndex = _presets.FindIndex(p => AssetDatabase.GetAssetPath(p) == paths[0]);
+                            if (_selectedPresetIndex >= 0) SelectPreset(_presets[_selectedPresetIndex]);
+                        }
+                        _sourceProjectStatus = paths.Count > 0
+                            ? $"已导入 {paths.Count} 个预设到本地目录。" : "该项目没有新的可导入预设。";
+                    }
+                    catch (Exception e) { _sourceProjectStatus = "读取预设失败：" + e.Message; }
+                }
+                if (GUILayout.Button("直接扫描项目生成预设", GUILayout.Height(25)))
+                {
+                    try { PresetEditorWindow.ShowWindow(PresetManager.CreateFromProject(_sourceProjectRoot), true); }
+                    catch (Exception e) { _sourceProjectStatus = "扫描项目失败：" + e.Message; }
+                }
+            }
+            EditorGUI.EndDisabledGroup();
+            if (!string.IsNullOrEmpty(_sourceProjectStatus))
+                EditorGUILayout.HelpBox(_sourceProjectStatus, valid ? MessageType.Info : MessageType.Warning);
+            EditorGUILayout.EndVertical();
+        }
+
         private void DrawPresetSelector()
         {
             EditorGUILayout.BeginVertical("box");
@@ -268,8 +352,7 @@ namespace ProjectInitializer
                 _selectedPresetIndex = EditorGUILayout.Popup("预设", _selectedPresetIndex, presetNames);
                 if (EditorGUI.EndChangeCheck())
                 {
-                    _selectedPreset = _presets[_selectedPresetIndex];
-                    AutoUncheckExisting();
+                    SelectPreset(_presets[_selectedPresetIndex]);
                 }
                 EditorGUILayout.EndHorizontal();
 
@@ -278,13 +361,16 @@ namespace ProjectInitializer
                     EditorGUILayout.BeginHorizontal();
                     EditorGUILayout.LabelField(_selectedPreset.description, EditorStyles.wordWrappedMiniLabel);
                     EditorGUILayout.EndHorizontal();
+                    EditorGUILayout.LabelField(
+                        $"目录 {_selectedPreset.directories.Count}   依赖包 {_selectedPreset.packages.Count}   插件文件 {_selectedPreset.plugins?.Count ?? 0}   设置 {_selectedPreset.settings.Count}",
+                        EditorStyles.miniLabel);
                 }
 
                 EditorGUILayout.Space(4);
                 EditorGUILayout.BeginHorizontal();
                 if (GUILayout.Button("编辑当前预设", GUILayout.Height(24)))
                 {
-                    PresetEditorWindow.ShowWindow(_selectedPreset, false);
+                    PresetEditorWindow.ShowWindow(_sourcePreset, false);
                 }
                 if (GUILayout.Button("新建预设", GUILayout.Height(24)))
                 {
@@ -305,19 +391,24 @@ namespace ProjectInitializer
         // 折叠状态
         private bool _dirFoldout = true;
         private bool _pkgFoldout = true;
+        private bool _pluginFoldout = true;
         private bool _setFoldout = true;
 
         private void DrawPresetOverview()
         {
             EditorGUILayout.BeginVertical("box");
 
-            _overviewScroll = EditorGUILayout.BeginScrollView(_overviewScroll, GUILayout.MaxHeight(300));
+            _overviewScroll = EditorGUILayout.BeginScrollView(_overviewScroll, GUILayout.MaxHeight(360));
 
             DrawDirectoryOverviewTree();
             EditorGUILayout.Space(4);
             DrawPackageOverview();
             EditorGUILayout.Space(4);
+            DrawPluginOverview();
+            EditorGUILayout.Space(4);
             DrawSettingsOverview();
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
         }
 
         #region Directory Overview — 分层树
@@ -667,14 +758,40 @@ namespace ProjectInitializer
                 }
             }
 
-            EditorGUILayout.EndScrollView();
-            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawPluginOverview()
+        {
+            var plugins = _selectedPreset.plugins;
+            if (plugins == null) return;
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                _pluginFoldout = EditorGUILayout.Foldout(_pluginFoldout,
+                    $"🧩 插件文件 ({_selectedPreset.SelectedPluginCount}/{plugins.Count})", true);
+                if (_pluginFoldout && plugins.Count > 0)
+                {
+                    if (GUILayout.Button("全选", GUILayout.Width(40))) foreach (var p in plugins) if (p != null) p.copyFiles = true;
+                    if (GUILayout.Button("全不选", GUILayout.Width(50))) foreach (var p in plugins) if (p != null) p.copyFiles = false;
+                }
+            }
+            if (!_pluginFoldout) return;
+            if (plugins.Count == 0) { EditorGUILayout.LabelField("  (无)", EditorStyles.miniLabel); return; }
+            foreach (var plugin in plugins)
+            {
+                if (plugin == null) continue;
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    plugin.copyFiles = EditorGUILayout.Toggle(plugin.copyFiles, GUILayout.Width(16));
+                    EditorGUILayout.LabelField(plugin.path, EditorStyles.miniLabel);
+                    GUILayout.Label(PluginArchiveManager.PluginExists(plugin) ? "已存在" : "待复制",
+                        EditorStyles.miniLabel, GUILayout.Width(48));
+                }
+            }
         }
 
         private void MarkDirty()
         {
-            if (_selectedPreset != null)
-                EditorUtility.SetDirty(_selectedPreset);
+            // 初始化窗口中的勾选只对本次执行有效，不能改写预设资产。
         }
 
         #endregion
@@ -686,13 +803,20 @@ namespace ProjectInitializer
             EditorGUILayout.BeginVertical("box");
             _optCreateDirectories = EditorGUILayout.ToggleLeft("📁 创建目录模板", _optCreateDirectories);
             _optInstallPackages = EditorGUILayout.ToggleLeft("📦 安装依赖包", _optInstallPackages);
+            _optCopyPlugins = EditorGUILayout.ToggleLeft("🧩 复制选中的插件文件", _optCopyPlugins);
             _optApplySettings = EditorGUILayout.ToggleLeft("⚙ 应用项目设置", _optApplySettings);
             EditorGUILayout.EndVertical();
         }
 
         private void DrawExecuteButton()
         {
-            bool canExecute = !_isExecuting && (_optCreateDirectories || _optInstallPackages || _optApplySettings);
+            bool canExecute = !_isExecuting && (_optCreateDirectories || _optInstallPackages || _optCopyPlugins || _optApplySettings);
+
+            EditorGUILayout.LabelField(
+                $"本次选择：目录 {(_optCreateDirectories ? _selectedPreset.EnabledDirectoryCount : 0)}  ·  包 {(_optInstallPackages ? _selectedPreset.SelectedPackageCount : 0)}  ·  插件 {(_optCopyPlugins ? _selectedPreset.SelectedPluginCount : 0)}  ·  设置 {(_optApplySettings ? _selectedPreset.EnabledSettingsCount : 0)}",
+                EditorStyles.miniLabel);
+            if (_optCopyPlugins && _selectedPreset.SelectedPluginCount > 0 && _selectedPreset.pluginArchive == null)
+                EditorGUILayout.HelpBox("所选预设缺少插件归档。请在预设编辑器中保存并生成归档。", MessageType.Warning);
 
             EditorGUI.BeginDisabledGroup(!canExecute);
             EditorGUILayout.BeginHorizontal();
@@ -729,7 +853,17 @@ namespace ProjectInitializer
                     Log($"  ~ {path} (已存在)", ExecutionLog.LogType.Warning);
             }
 
-            // Step 2: 安装包
+            // Step 2: 复制插件文件
+            if (_optCopyPlugins && _selectedPreset.SelectedPluginCount > 0)
+            {
+                Log("─ 复制插件文件 ─", ExecutionLog.LogType.Info);
+                var result = PluginArchiveManager.CopySelected(_selectedPreset);
+                foreach (var path in result.copied) Log($"  + {path}", ExecutionLog.LogType.Success);
+                foreach (var path in result.skipped) Log($"  ~ {path} (已存在)", ExecutionLog.LogType.Warning);
+                foreach (var path in result.failed) Log($"  ✗ {path}", ExecutionLog.LogType.Error);
+            }
+
+            // Step 3: 安装包
             if (_optInstallPackages && _selectedPreset.SelectedPackageCount > 0)
             {
                 Log("─ 安装依赖包 ─", ExecutionLog.LogType.Info);
@@ -743,7 +877,7 @@ namespace ProjectInitializer
                 _pkgInstalled = true;
             }
 
-            // Step 3: 应用设置
+            // Step 4: 应用设置
             if (_optApplySettings)
             {
                 Log("─ 应用项目设置 ─", ExecutionLog.LogType.Info);

@@ -35,14 +35,20 @@ namespace ProjectInitializer
         private System.Action _installCompleteCallback;
         private HashSet<string> _installedPackageNames;
         private List<PackageEntry> _packagesToCheck;
+        private PackageEntry _currentPackage;
 
         /// <summary>
         /// 检查哪些包未安装。异步操作，完成后回调。
         /// </summary>
         public void CheckPackages(List<PackageEntry> packages, System.Action<CheckResult> onComplete)
         {
+            if (State == InstallState.Installing)
+                throw new System.InvalidOperationException("已有包管理操作正在进行。");
+            // 切换预设时复用正在进行的 List 请求，回调只针对最新选择。
             _checkCallback = onComplete;
             _packagesToCheck = packages;
+            if (State == InstallState.Checking)
+                return;
             State = InstallState.Checking;
             StatusMessage = "正在读取当前依赖包列表...";
             _listRequest = Client.List(true);
@@ -66,6 +72,8 @@ namespace ProjectInitializer
             if (_listRequest.Status == StatusCode.Success)
             {
                 _installedPackageNames = new HashSet<string>(_listRequest.Result.Select(p => p.name));
+                foreach (var localPackage in PresetManager.ReadAssetPackages())
+                    _installedPackageNames.Add(localPackage.packageName);
                 result.success = true;
                 StatusMessage = string.Empty;
 
@@ -86,24 +94,26 @@ namespace ProjectInitializer
                 StatusMessage = $"读取依赖包失败：{result.errorMessage}";
             }
 
-            State = InstallState.Ready;
-            _checkCallback?.Invoke(result);
+            State = result.success ? InstallState.Ready : InstallState.Failed;
+            var callback = _checkCallback;
+            _checkCallback = null;
+            callback?.Invoke(result);
         }
 
         /// <summary>
         /// 安装选中的包。异步操作，完成后回调。
-        /// 安装前自动确保 com.zko.nodin 已写入 manifest.json。
         /// </summary>
         public void InstallPackages(List<PackageEntry> packages, System.Action onComplete)
         {
-            // 确保 Nodin 依赖已就位
-            Setup.NodinSetup.EnsureNodinDependency();
+            if (State == InstallState.Checking || State == InstallState.Installing)
+                throw new System.InvalidOperationException("已有包管理操作正在进行。");
 
             _installCompleteCallback = onComplete;
             _installQueue.Clear();
             InstalledCount = 0;
             FailedCount = 0;
             FailedPackages.Clear();
+            _currentPackage = null;
 
             if (packages == null)
             {
@@ -114,7 +124,8 @@ namespace ProjectInitializer
 
             foreach (var pkg in packages)
             {
-                if (pkg != null && pkg.selected)
+                if (pkg != null && pkg.selected && !string.IsNullOrWhiteSpace(pkg.installSpec) &&
+                    (_installedPackageNames == null || !_installedPackageNames.Contains(pkg.packageName)))
                     _installQueue.Enqueue(pkg);
             }
 
@@ -139,9 +150,8 @@ namespace ProjectInitializer
 
                 if (_addRequest.Status == StatusCode.Failure)
                 {
-                    var failedItem = _installQueue.Count > 0 ? _installQueue.Peek() : null;
                     FailedCount++;
-                    FailedPackages.Add(failedItem?.packageName ?? "unknown");
+                    FailedPackages.Add(_currentPackage?.packageName ?? "unknown");
                     StatusMessage = $"安装失败：{_addRequest.Error.message}";
                     _addRequest = null;
                     // 不清空队列继续安装其他包，仅跳过当前失败的
@@ -149,8 +159,11 @@ namespace ProjectInitializer
                 else
                 {
                     InstalledCount++;
+                    if (_currentPackage != null)
+                        _installedPackageNames?.Add(_currentPackage.packageName);
                     _addRequest = null;
                 }
+                _currentPackage = null;
             }
 
             if (_installQueue.Count == 0)
@@ -160,13 +173,15 @@ namespace ProjectInitializer
                     ? $"安装完成：成功 {InstalledCount} 个，失败 {FailedCount} 个。"
                     : $"依赖包安装完成，共 {InstalledCount} 个。";
                 EditorApplication.update -= InstallNextDependency;
-                _installCompleteCallback?.Invoke();
+                var callback = _installCompleteCallback;
+                _installCompleteCallback = null;
+                callback?.Invoke();
                 return;
             }
 
-            var item = _installQueue.Dequeue();
-            StatusMessage = $"正在安装：{item.displayName} ({item.packageName})";
-            _addRequest = Client.Add(item.installSpec);
+            _currentPackage = _installQueue.Dequeue();
+            StatusMessage = $"正在安装：{_currentPackage.displayName} ({_currentPackage.packageName})";
+            _addRequest = Client.Add(_currentPackage.installSpec);
         }
 
         /// <summary>

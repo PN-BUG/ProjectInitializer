@@ -6,9 +6,8 @@ namespace ProjectInitializer
 {
     /// <summary>
     /// 项目初始化预设 — 存储目录模板、依赖包、项目设置的完整配置。
-    /// 可通过 CreateAssetMenu 在 Project 视图创建，也可在预设编辑器中管理。
+    /// 通过预设编辑器创建并保存到本地预设目录。
     /// </summary>
-    [CreateAssetMenu(fileName = "NewInitPreset", menuName = "Project Initializer/Preset", order = 200)]
     [Serializable]
     public class ProjectInitPreset : ScriptableObject
     {
@@ -25,6 +24,18 @@ namespace ProjectInitializer
         [Tooltip("依赖包 — 需要安装的 UPM 包列表")]
         public List<PackageEntry> packages = new List<PackageEntry>();
 
+        [Tooltip("Assets/Plugins 中可选择完整复制的目录或文件")]
+        public List<PluginEntry> plugins = new List<PluginEntry>();
+
+        [Tooltip("与预设一起复制到新项目的插件文件归档")]
+        public TextAsset pluginArchive;
+
+        [HideInInspector]
+        public string importedFromPath;
+
+        [NonSerialized]
+        public string sourceProjectRoot;
+
         [Tooltip("项目设置 — 需要应用的 PlayerSettings 配置")]
         public List<SettingsEntry> settings = new List<SettingsEntry>();
 
@@ -36,9 +47,13 @@ namespace ProjectInitializer
             var clone = CreateInstance<ProjectInitPreset>();
             clone.presetName = presetName;
             clone.description = description;
-            clone.directories = new List<DirectoryEntry>(directories);
-            clone.packages = new List<PackageEntry>(packages);
-            clone.settings = new List<SettingsEntry>(settings);
+            clone.directories = directories?.ConvertAll(d => d == null ? null : new DirectoryEntry(d.path, d.enabled)) ?? new List<DirectoryEntry>();
+            clone.packages = packages?.ConvertAll(p => p == null ? null : new PackageEntry(p.packageName, p.displayName, p.installSpec, p.selected)) ?? new List<PackageEntry>();
+            clone.plugins = plugins?.ConvertAll(p => p == null ? null : new PluginEntry(p.path, p.isDirectory, p.copyFiles)) ?? new List<PluginEntry>();
+            clone.pluginArchive = pluginArchive;
+            clone.importedFromPath = importedFromPath;
+            clone.sourceProjectRoot = sourceProjectRoot;
+            clone.settings = settings?.ConvertAll(s => s == null ? null : new SettingsEntry(s.category, s.key, s.value, s.enabled)) ?? new List<SettingsEntry>();
             return clone;
         }
 
@@ -85,6 +100,40 @@ namespace ProjectInitializer
                     if (s != null && s.enabled) count++;
                 return count;
             }
+        }
+
+        public int SelectedPluginCount
+        {
+            get
+            {
+                int count = 0;
+                if (plugins == null) return 0;
+                foreach (var p in plugins)
+                    if (p != null && p.copyFiles) count++;
+                return count;
+            }
+        }
+    }
+
+    [Serializable]
+    public class PluginEntry
+    {
+        [Tooltip("相对于 Assets 的路径，必须位于 Plugins 下")]
+        public string path;
+
+        [Tooltip("是否为目录")]
+        public bool isDirectory;
+
+        [Tooltip("应用预设时复制完整文件和 .meta")]
+        public bool copyFiles;
+
+        public PluginEntry() { }
+
+        public PluginEntry(string path, bool isDirectory, bool copyFiles = false)
+        {
+            this.path = path;
+            this.isDirectory = isDirectory;
+            this.copyFiles = copyFiles;
         }
     }
 

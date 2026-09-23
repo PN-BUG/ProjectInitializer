@@ -86,11 +86,13 @@ namespace ProjectInitializer
 
             path = path.Trim().Replace('\\', '/');
 
+            if (path.StartsWith("/", System.StringComparison.Ordinal) || Path.IsPathRooted(path) || path.Contains(":"))
+                return string.Empty;
+
             // 移除前导 Assets/ 前缀
             if (path.StartsWith("Assets/", System.StringComparison.OrdinalIgnoreCase))
                 path = path.Substring(7);
-            if (path.StartsWith("/"))
-                path = path.TrimStart('/');
+            // 拒绝路径穿越和根路径，不能让预设在 Assets 之外创建目录。
 
             // 过滤空段
             var parts = path.Split('/');
@@ -98,6 +100,8 @@ namespace ProjectInitializer
             foreach (var part in parts)
             {
                 string clean = part.Trim();
+                if (clean == "." || clean == ".." || clean.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                    return string.Empty;
                 if (!string.IsNullOrEmpty(clean))
                     cleanParts.Add(clean);
             }

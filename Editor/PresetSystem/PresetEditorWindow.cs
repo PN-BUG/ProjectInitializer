@@ -10,18 +10,18 @@ namespace ProjectInitializer
 {
     /// <summary>
     /// 预设编辑器窗口 — 可视化编辑预设的目录模板、依赖包、项目设置。
-    /// 三 Tab 界面，支持拖拽识别、读取当前项目、保存为 .asset 文件。
+    /// 四 Tab 界面，支持拖拽识别、读取当前项目、保存为 .asset 文件。
     /// </summary>
     public class PresetEditorWindow : EditorWindow
     {
-        private enum Tab { Directories, Packages, Settings }
+        private enum Tab { Directories, Packages, Plugins, Settings }
 
         private ProjectInitPreset _preset;
         private bool _isNewPreset;
         private Tab _currentTab = Tab.Directories;
 
         // Scroll
-        private Vector2 _dirScroll, _pkgScroll, _setScroll, _descScroll;
+        private Vector2 _dirScroll, _pkgScroll, _pluginScroll, _setScroll, _descScroll;
 
         // 输入
         private string _newDirPath = string.Empty;
@@ -32,7 +32,7 @@ namespace ProjectInitializer
         // 状态
         private PackageInstaller _packageInstaller;
         private string _statusMessage = string.Empty;
-        private bool _dirDragHover, _pkgDragHover;
+        private bool _dirDragHover, _pkgDragHover, _pluginDragHover;
 
         // 颜色
         private static readonly Color ClrBg = new Color(0.16f, 0.16f, 0.17f);
@@ -75,20 +75,22 @@ namespace ProjectInitializer
         public static void ShowWindow()
         {
             var w = GetWindow<PresetEditorWindow>("预设编辑器");
-            w.minSize = new Vector2(540, 560);
+            w.minSize = new Vector2(620, 580);
         }
 
         public static void ShowWindow(ProjectInitPreset preset, bool isNew = false)
         {
             var w = GetWindow<PresetEditorWindow>("预设编辑器");
-            w.minSize = new Vector2(540, 560);
+            w.minSize = new Vector2(620, 580);
             w.LoadPreset(preset, isNew);
         }
 
         public void LoadPreset(ProjectInitPreset preset, bool isNew = false)
         {
-            _preset = preset;
-            _isNewPreset = isNew;
+            string path = preset == null ? string.Empty : AssetDatabase.GetAssetPath(preset);
+            bool local = path.StartsWith(PresetManager.PresetFolder + "/", StringComparison.Ordinal);
+            _preset = preset != null && !local && !string.IsNullOrEmpty(path) ? preset.Clone() : preset;
+            _isNewPreset = isNew || (!local && !string.IsNullOrEmpty(path));
             _statusMessage = string.Empty;
         }
 
@@ -111,6 +113,7 @@ namespace ProjectInitializer
             {
                 case Tab.Directories: DrawDirectoriesTab(); break;
                 case Tab.Packages: DrawPackagesTab(); break;
+                case Tab.Plugins: DrawPluginsTab(); break;
                 case Tab.Settings: DrawSettingsTab(); break;
             }
 
@@ -129,6 +132,9 @@ namespace ProjectInitializer
             _preset.description = EditorGUILayout.TextArea(_preset.description, GUILayout.ExpandHeight(true));
             EditorGUILayout.EndScrollView();
             if (EditorGUI.EndChangeCheck()) MarkDirty();
+            EditorGUILayout.LabelField(
+                $"目录 {_preset.directories?.Count ?? 0}    依赖包 {_preset.packages?.Count ?? 0}    插件文件 {_preset.plugins?.Count ?? 0}    设置 {_preset.settings?.Count ?? 0}",
+                EditorStyles.miniLabel);
             EditorGUILayout.EndVertical();
         }
 
@@ -139,9 +145,94 @@ namespace ProjectInitializer
                 _currentTab = Tab.Directories;
             if (GUILayout.Toggle(_currentTab == Tab.Packages, "📦 依赖包", "LargeButton", GUILayout.Height(26)))
                 _currentTab = Tab.Packages;
+            if (GUILayout.Toggle(_currentTab == Tab.Plugins, "🧩 插件文件", "LargeButton", GUILayout.Height(26)))
+                _currentTab = Tab.Plugins;
             if (GUILayout.Toggle(_currentTab == Tab.Settings, "⚙ 项目设置", "LargeButton", GUILayout.Height(26)))
                 _currentTab = Tab.Settings;
             EditorGUILayout.EndHorizontal();
+        }
+
+        #endregion
+
+        #region Plugins Tab
+
+        private void DrawPluginsTab()
+        {
+            if (_preset.plugins == null) _preset.plugins = new List<PluginEntry>();
+            DrawSection($"插件文件 ({_preset.plugins.Count})", ClrPurple());
+            EditorGUILayout.HelpBox("保存预设时会把列出的插件完整打包（含 .meta）。应用时仅复制勾选项；目标已存在的插件会跳过。复制预设到新项目时请连同 .plugins.bytes 文件一起复制。", MessageType.Info);
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("读取 Assets/Plugins", GUILayout.Width(145))) ReadCurrentProjectPlugins();
+                if (GUILayout.Button("全选", GUILayout.Width(50))) { foreach (var p in _preset.plugins) p.copyFiles = true; MarkDirty(); }
+                if (GUILayout.Button("全不选", GUILayout.Width(60))) { foreach (var p in _preset.plugins) p.copyFiles = false; MarkDirty(); }
+                GUILayout.FlexibleSpace();
+                GUILayout.Label($"复制 {_preset.SelectedPluginCount}/{_preset.plugins.Count}", _stMiniBold);
+            }
+            DrawDropArea("拖入 Assets/Plugins 中的目录或文件", ref _pluginDragHover, HandlePluginDragDrop);
+            if (_preset.pluginArchive != null)
+                EditorGUILayout.LabelField("文件归档：" + AssetDatabase.GetAssetPath(_preset.pluginArchive), _stMini);
+            else
+                EditorGUILayout.LabelField("文件归档：保存预设后生成", _stMini);
+
+            _pluginScroll = EditorGUILayout.BeginScrollView(_pluginScroll, GUILayout.ExpandHeight(true));
+            if (_preset.plugins.Count == 0)
+                EditorGUILayout.HelpBox("尚未添加插件。点击读取或将插件拖入上方区域。", MessageType.None);
+            for (int i = 0; i < _preset.plugins.Count; i++)
+            {
+                var plugin = _preset.plugins[i];
+                if (plugin == null) continue;
+                using (new EditorGUILayout.HorizontalScope("box"))
+                {
+                    EditorGUI.BeginChangeCheck();
+                    plugin.copyFiles = EditorGUILayout.Toggle(plugin.copyFiles, GUILayout.Width(18));
+                    if (EditorGUI.EndChangeCheck()) MarkDirty();
+                    GUILayout.Label(plugin.isDirectory ? "📁" : "📄", GUILayout.Width(22));
+                    using (new EditorGUILayout.VerticalScope())
+                    {
+                        GUILayout.Label(Path.GetFileName(plugin.path), _stMiniBold);
+                        GUILayout.Label(plugin.path, _stMini);
+                    }
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label(PluginArchiveManager.PluginExists(plugin) ? "已在项目中" : "等待复制", _stMini, GUILayout.Width(70));
+                    if (GUILayout.Button("✕", GUILayout.Width(22)))
+                    { _preset.plugins.RemoveAt(i--); MarkDirty(); }
+                }
+            }
+            EditorGUILayout.EndScrollView();
+        }
+
+        private static Color ClrPurple() => new Color(0.55f, 0.45f, 0.85f);
+
+        private void ReadCurrentProjectPlugins()
+        {
+            _preset.sourceProjectRoot = PresetManager.CurrentProjectRoot;
+            int added = 0;
+            foreach (var plugin in PresetManager.ReadCurrentProjectPlugins())
+            {
+                if (_preset.plugins.Any(p => p != null && p.path == plugin.path)) continue;
+                _preset.plugins.Add(plugin);
+                added++;
+            }
+            if (added > 0) MarkDirty();
+            _statusMessage = $"添加了 {added} 个插件条目。";
+        }
+
+        private void HandlePluginDragDrop()
+        {
+            int added = 0;
+            foreach (var obj in DragAndDrop.objectReferences)
+            {
+                string path = AssetDatabase.GetAssetPath(obj);
+                if (path.StartsWith("Assets/", StringComparison.Ordinal)) path = path.Substring(7);
+                if (!PluginArchiveManager.IsValidPluginPath(path) || _preset.plugins.Any(p => p != null && p.path == path)) continue;
+                string fullPath = Path.Combine(Application.dataPath, path);
+                if (!Directory.Exists(fullPath) && !File.Exists(fullPath)) continue;
+                _preset.plugins.Add(new PluginEntry(path, Directory.Exists(fullPath)));
+                added++;
+            }
+            if (added > 0) MarkDirty();
+            _statusMessage = $"拖入了 {added} 个插件条目。";
         }
 
         #endregion
@@ -164,7 +255,7 @@ namespace ProjectInitializer
                 if (GUILayout.Button("读取当前项目", GUILayout.Width(90)))
                     ReadCurrentProjectDirectories();
                 if (GUILayout.Button("清空", GUILayout.Width(45)))
-                    _preset.directories.Clear();
+                { _preset.directories.Clear(); MarkDirty(); }
             }
 
             // 拖拽区
@@ -495,7 +586,7 @@ namespace ProjectInitializer
                 GUILayout.Space(16);
                 if (GUILayout.Button("+ Core", GUILayout.ExpandWidth(false)))
                     TryAddPackage("com.unityframework.core", "UnityFramework",
-                        "https://gitee.com/PN-BUG/infinite-treasury.git?path=Assets/UnityFramework");
+                        PresetManager.UnityFrameworkInstallSpec);
                 GUILayout.FlexibleSpace();
             }
             using (new EditorGUILayout.HorizontalScope())
@@ -564,20 +655,15 @@ namespace ProjectInitializer
 
         private void ReadCurrentProjectPackages()
         {
-            _statusMessage = "正在读取当前项目包列表...";
-            _packageInstaller.CheckPackages(null, result =>
+            int added = 0;
+            foreach (var package in PresetManager.ReadProjectPackages())
             {
-                if (!result.success) { _statusMessage = $"读取失败: {result.errorMessage}"; return; }
-                int added = 0;
-                foreach (var name in _packageInstaller.GetInstalledPackageNames())
-                {
-                    if (!_preset.packages.Any(p => p.packageName == name))
-                    { _preset.packages.Add(new PackageEntry(name, name, name, false)); added++; }
-                }
-                _statusMessage = added > 0 ? $"读取项目添加了 {added} 个包。" : "项目包已全部在预设中。";
-                MarkDirty();
-                Repaint();
-            });
+                if (_preset.packages.Any(p => p.packageName == package.packageName)) continue;
+                _preset.packages.Add(package);
+                added++;
+            }
+            _statusMessage = added > 0 ? $"读取项目添加了 {added} 个包。" : "项目依赖已全部在预设中。";
+            if (added > 0) MarkDirty();
         }
 
         private static string[] ParsePackageJson(string assetPath)
@@ -640,7 +726,7 @@ namespace ProjectInitializer
                 if (GUILayout.Button("读取当前项目", GUILayout.Width(90)))
                     ReadCurrentProjectSettings();
                 if (GUILayout.Button("清空", GUILayout.Width(45)))
-                    _preset.settings.Clear();
+                { _preset.settings.Clear(); MarkDirty(); }
             }
 
             // 添加新设置
@@ -815,29 +901,35 @@ namespace ProjectInitializer
         private void SavePreset()
         {
             string path = AssetDatabase.GetAssetPath(_preset);
-            if (!string.IsNullOrEmpty(path))
-            { MarkDirty(); AssetDatabase.SaveAssets(); _statusMessage = $"已保存: {path}"; }
+            if (path.StartsWith(PresetManager.PresetFolder + "/", StringComparison.Ordinal))
+            { MarkDirty(); bool archived = PluginArchiveManager.RefreshArchive(_preset); AssetDatabase.SaveAssets(); _statusMessage = archived ? $"已保存: {path}" : "预设已保存，但插件归档未生成；请检查插件源文件。"; }
             else SavePresetAs();
         }
 
         private void SavePresetAs()
         {
+            PresetManager.EnsurePresetFolder();
             string path = EditorUtility.SaveFilePanelInProject("保存预设", _preset.presetName, "asset", "选择位置", PresetManager.PresetFolder);
             if (string.IsNullOrEmpty(path)) return;
-            string existing = AssetDatabase.GetAssetPath(_preset);
-            if (string.IsNullOrEmpty(existing))
-            { PresetManager.EnsurePresetFolder(); AssetDatabase.CreateAsset(_preset, path); }
-            else { var clone = _preset.Clone(); AssetDatabase.CreateAsset(clone, path); _preset = clone; }
-            AssetDatabase.SaveAssets();
+            if (!path.StartsWith(PresetManager.PresetFolder + "/", StringComparison.Ordinal))
+            { _statusMessage = "请将预设保存到本地 Presets 目录，避免上传 Git。"; return; }
+            var copy = _preset.Clone();
+            path = PresetManager.SavePreset(copy, Path.GetFileNameWithoutExtension(path));
+            _preset = copy;
             _isNewPreset = false;
-            _statusMessage = $"已保存: {path}";
+            _statusMessage = copy.plugins.Count == 0 || copy.pluginArchive != null
+                ? $"已保存: {path}" : "预设已保存，但插件归档未生成；请检查插件源文件。";
         }
 
         private void ImportFromPreset(ProjectInitPreset src)
         {
-            _preset.directories = new List<DirectoryEntry>(src.directories);
-            _preset.packages = new List<PackageEntry>(src.packages);
-            _preset.settings = new List<SettingsEntry>(src.settings);
+            var copy = src.Clone();
+            _preset.directories = copy.directories;
+            _preset.packages = copy.packages;
+            _preset.plugins = copy.plugins;
+            _preset.pluginArchive = copy.pluginArchive;
+            _preset.settings = copy.settings;
+            DestroyImmediate(copy);
             MarkDirty();
             _statusMessage = "已从预设导入内容。";
         }
@@ -858,8 +950,22 @@ namespace ProjectInitializer
                     LoadPreset(PresetManager.CreateEmptyPreset(), true);
                 if (GUILayout.Button("从默认预设创建", GUILayout.Height(28)))
                     LoadPreset(PresetManager.CreateDefaultPreset(), true);
+                if (GUILayout.Button("从当前项目创建", GUILayout.Height(28)))
+                    LoadPreset(PresetManager.CreateFromCurrentProject(), true);
+                if (GUILayout.Button("从其他项目创建", GUILayout.Height(28)))
+                {
+                    string project = EditorUtility.OpenFolderPanel("选择 Unity 项目根目录", string.Empty, string.Empty);
+                    if (!string.IsNullOrEmpty(project))
+                    {
+                        if (PresetManager.IsUnityProject(project))
+                            LoadPreset(PresetManager.CreateFromProject(project), true);
+                        else _statusMessage = "请选择包含 Assets、Packages 和 ProjectSettings 的 Unity 项目根目录。";
+                    }
+                }
             }
             EditorGUILayout.Space(4);
+            if (!string.IsNullOrEmpty(_statusMessage))
+                EditorGUILayout.HelpBox(_statusMessage, MessageType.Warning);
             EditorGUILayout.LabelField("已有预设:", EditorStyles.miniLabel);
             var all = PresetManager.FindAllPresets();
             if (all.Count == 0) { EditorGUILayout.HelpBox("暂无已保存的预设。", MessageType.None); return; }
@@ -868,7 +974,7 @@ namespace ProjectInitializer
                 using (new EditorGUILayout.HorizontalScope("box"))
                 {
                     EditorGUILayout.LabelField(p.presetName, GUILayout.Width(140));
-                    EditorGUILayout.LabelField($"目录:{p.directories.Count} 包:{p.packages.Count} 设置:{p.settings.Count}", EditorStyles.miniLabel);
+                    EditorGUILayout.LabelField($"目录:{p.directories.Count} 包:{p.packages.Count} 插件:{p.plugins?.Count ?? 0} 设置:{p.settings.Count}", EditorStyles.miniLabel);
                     if (GUILayout.Button("编辑", GUILayout.Width(50)))
                         LoadPreset(p, false);
                 }
