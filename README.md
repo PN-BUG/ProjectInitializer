@@ -76,7 +76,7 @@ Unity 会自动识别为本地包，无需额外配置。
 
 ## 快速开始
 
-1. 在目标 Unity 项目中通过 Git URL 安装工具，打开菜单 `Tools > 项目初始化工具`。
+1. 在目标 Unity 项目中通过 Git URL 安装工具，打开菜单 `Tools > 项目初始化工具`。预设编辑器也可从 `Tools > 项目初始化预设编辑器` 单独打开。
 2. 在「从其他 Unity 项目读取」中选择源项目根目录。该目录应包含 `Assets`、`Packages/manifest.json` 和 `ProjectSettings/ProjectVersion.txt`。
 3. 选择一种读取方式：
    - **读取该项目的预设**：导入源项目 `Assets/ProjectInitializer/Presets` 中已有的 `.asset` 预设及同名 `.plugins.bytes` 插件归档。也兼容旧版 `Packages/ProjectInitializer/Presets` 目录。重复导入同一文件会跳过。

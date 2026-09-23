@@ -75,7 +75,7 @@ namespace ProjectInitializer
             EditorGUILayout.EndHorizontal();
         }
 
-        [MenuItem("Tools/项目初始化工具/预设编辑器", priority = 1)]
+        [MenuItem("Tools/项目初始化预设编辑器", priority = 1)]
         public static void ShowWindow()
         {
             var w = GetWindow<PresetEditorWindow>("预设编辑器");
